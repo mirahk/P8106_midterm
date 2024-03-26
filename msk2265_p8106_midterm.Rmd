@@ -1,0 +1,21 @@
+---
+title: "p8106 midterm"
+author: "Mirah"
+date: "`r Sys.Date()`"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+```{r}
+load("Data/recovery.RData")
+
+data = dat %>% drop_na() %>% janitor::clean_names()
+
+```
+

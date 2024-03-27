@@ -7,15 +7,167 @@ output: github_document
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(caret)
+library(tidymodels)
+library(splines)
+library(mgcv)
+library(pdp)
+library(earth)
+library(tidyverse)
+library(ggplot2)
+library(corrplot)
 
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 ```
-
+# Midterm Project
+### background
+To gain a better understanding of the factors that predict recovery time from COVID-19 illness, a study was designed to combine three existing cohort studies that have been tracking participants for several years. The study collects recovery information through questionnaires and medical records, and leverages existing data on personal characteristics prior to the pandemic. The ultimate goal is to develop a prediction model for recovery time and identify important risk factors for long recovery time.
 ```{r}
+
+#loading data set
+
 load("Data/recovery.RData")
 
-data = dat %>% drop_na() %>% janitor::clean_names()
+dat = dat %>% drop_na() %>% janitor::clean_names() %>% select(-id)
 
 ```
+
+##Exploratory Analysis
+```{r}
+#matrix of predictors, no recovery time
+x_ea = model.matrix(recovery_time ~., dat)[, -1]
+#vector of responses
+y_ea = dat$recovery_time
+
+theme1 <- trellis.par.get()
+theme1$plot.symbol$col <- rgb(.2, .4, .2, .5)
+theme1$plot.symbol$pch <- 16
+theme1$plot.line$col <- rgb(.8, .1, .1, 1)
+theme1$plot.line$lwd <- 2
+theme1$strip.background$col <- rgb(.0, .2, .6, .2)
+trellis.par.set(theme1)
+
+featurePlot(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)], y_ea, plot="scatter", labels = c("", "Y"),type = c("p", "smooth"), layout = c(3,2))
+
+correlation = corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)],y_ea))
+#correlation values and scatter plots show no linear correlations with the nummeric variables
+
+#checking to see if predictors correlate
+corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)]), type = "full", diag= FALSE)
+
+#maybe add non parametric correlation test
+
+#check for normal distributions of numeric variables to see if transformationa are necessary
+```
+
+##Model training
+
+```{r}
+#splitting data into training and testing 
+set.seed(2)
+
+#data partition
+data_split = initial_split(data = dat, prop = .8)
+training_data = training(data_split)
+test_data = testing(data_split)
+```
+
+
+```{r}
+#training data
+
+#matrix of predictors, no recovery time
+x_training = model.matrix(recovery_time ~., training_data)[, -1]
+#vector of responses
+y_training = training_data$recovery_time
+
+#testing data
+
+#matrix of predictors, no recovery time
+x_testing = model.matrix(recovery_time ~., test_data)[, -1]
+#vector of responses
+y_testing = test_data$recovery_time
+
+```
+
+
+```{r}
+#using caret
+
+#knn
+control = trainControl(method= "cv", number = 10)
+
+
+fit.knn = train(x_training, y_training,
+                method = "knn",
+                trControl = control,
+                tuneGrid = expand.grid(k=seq(from =1, to = 25, by = 1)))
+
+ggplot(fit.knn)
+
+#k=14
+```
+
+```{r}
+#linear model
+fit.lm = train(x_training, y_training,
+               data = training_data,
+               trControl = control)
+```
+
+```{r}
+#ridge regression
+
+ridge.fit <- train(x_training,y_training,
+                   data = training_data,
+                   trControl = control,
+                   method = "glmnet",
+                   tuneGrid = expand.grid(alpha = 0,
+                                          lambda = exp(seq(10, -5, length=100))))
+
+plot(ridge.fit, xTrans = log)
+
+#best lambda
+ridge.fit$bestTune
+
+#Coefficients in final model
+coef(ridge.fit$finalModel, s = ridge.fit$bestTune$lambda)
+
+ridge.pred = predict(ridge.fit, newdata = model.matrix(recovery_time ~ .,test_data)[,-1])
+
+# test error
+mean((ridge.pred - test_data[, "recovery_time"])^2)
+```
+
+```{r}
+#dimension reduction
+
+#PCR
+#PLS
+
+#elastic net
+enet.fit = train(x_training, y_training,
+                 method = "glmnet",
+                 tuneGrid = expand.grid(alpha = seq(0, 1,length = 21),
+                                        lambda = exp(seq(6, 0, length = 100))),
+                 trControl = control)
+```
+
+```{r}
+#polynomial regression
+#GAM
+#MARS
+
+#logit for binary variables?
+```
+
+
+```{r}
+#which is better
+#rs <- resamples(list(knn = fit.knn,lm = fit.lm, elastic_net = enet.fit))
+
+#summary(rs, metric = "RMSE")
+```
+
 

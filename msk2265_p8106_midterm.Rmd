@@ -216,11 +216,14 @@ ggplot(fit.knn)
 
 ```{r}
 #linear model
-#set.seed(2)
+set.seed(2)
 
-#fit.lm = train(x_training, y_training,
-              # data = training_data,
-               #trControl = control)
+lm.fit = train(x_training, y_training,
+               method = "lm",
+               trControl = control)
+
+lm.fit$bestTune
+summary(lm.fit)
 ```
 
 How do you choose a lambda
@@ -373,7 +376,7 @@ plot(gam.fit$finalModel)
 
 ```{r}
 #which is better
-rs = resamples(list(knn = fit.knn, elastic_net = enet.fit, mars = mars.fit, gam = gam.fit,pcr=pcr.fit, pls=pls.fit))
+rs = resamples(list(knn = fit.knn, lm = lm.fit, elastic_net = enet.fit, mars = mars.fit, gam = gam.fit,pcr=pcr.fit, pls=pls.fit))
 
 summary(rs, metric = "RMSE")
 

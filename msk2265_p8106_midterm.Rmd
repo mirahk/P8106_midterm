@@ -124,7 +124,6 @@ corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)]), type = "full", diag= FALSE
 Based on a discussion with the team, we decided to remove outliers and then proceed with further exploratory analysis and model training.
 
 ```{r}
-
 #box plots to show outliers
 ggplot(data = dat, mapping = aes(y=recovery_time)) + geom_boxplot()
 
@@ -141,7 +140,7 @@ hist1 = dat %>%
 
 #Removing outliers
 
-outlier_coef = 2
+outlier_coef = 1.5
 
 outlier_upper = mean(dat$recovery_time) +outlier_coef* sd(dat$recovery_time)
 
@@ -162,14 +161,39 @@ hist2 = dat_2 %>%
 
 #to compare side by side
 gridExtra::grid.arrange(hist1, hist2, nrow=1)
+```
 
+
+```{r}
+#exploratory plots now that outliers are gone:
+
+skimr::skim(dat_2) %>%  dplyr::mutate(across(where(is.numeric), ~round(., 2))) %>%  select(skim_variable, numeric.hist, n_missing, numeric.mean, numeric.sd, numeric.p0, numeric.p50, numeric.p100) %>% knitr::kable()
+
+exploratory_table = table1(~ gender + age + race + height + weight + bmi + sbp + ldl + smoking + hypertension + diabetes + severity + recovery_time |study, data=dat_2)
+
+exploratory_table
+
+#scatter plot 
+#matrix of predictors, no recovery time
+x_ea2 = model.matrix(recovery_time ~., dat_2)[, -1]
+#vector of responses
+y_ea2 = dat_2$recovery_time
+theme1 <- trellis.par.get()
+theme1$plot.symbol$col <- rgb(.2, .4, .2, .5)
+theme1$plot.symbol$pch <- 16
+theme1$plot.line$col <- rgb(.8, .1, .1, 1)
+theme1$plot.line$lwd <- 2
+theme1$strip.background$col <- rgb(.0, .2, .6, .2)
+trellis.par.set(theme1)
+
+featurePlot(x_ea2[, -c(2,3,4,5,6,7,11,12,15,16,17)], y_ea2, plot="scatter", labels = c("", "Y"),type = c("p", "smooth"), layout = c(3,2))
 ```
 
 ##Model training
 
 ```{r}
 #splitting data into training and testing 
-set.seed(2)
+set.seed(1234)
 
 #data partition
 data_split = initial_split(data = dat_2, prop = .8)
@@ -181,6 +205,7 @@ test_data = testing(data_split) %>% as.vector()
 
 ```{r}
 #training data
+set.seed(1234)
 
 #matrix of predictors, no recovery time
 x_training = model.matrix(recovery_time ~., training_data)[, -1]
@@ -188,7 +213,7 @@ x_training = model.matrix(recovery_time ~., training_data)[, -1]
 y_training = training_data$recovery_time
 
 #testing data
-
+set.seed(1234)
 #matrix of predictors, no recovery time
 x_testing = model.matrix(recovery_time ~., test_data)[, -1]
 #vector of responses
@@ -200,6 +225,7 @@ y_testing = test_data$recovery_time
 ```{r}
 #using caret
 
+set.seed(1234)
 #knn
 control = trainControl(method= "cv", number = 10)
 
@@ -216,7 +242,7 @@ ggplot(fit.knn)
 
 ```{r}
 #linear model
-set.seed(2)
+set.seed(1234)
 
 lm.fit = train(x_training, y_training,
                method = "lm",
@@ -229,7 +255,7 @@ summary(lm.fit)
 How do you choose a lambda
 ```{r}
 #ridge regression
-set.seed(2)
+set.seed(1234)
 ridge.fit <- train(x_training,y_training,
                    data = training_data,
                    trControl = control,
@@ -254,7 +280,7 @@ mean((ridge.pred - test_data$recovery_time)^2)
 Dimension reduction
 ```{r}
 #PCR
-set.seed(2)
+set.seed(1234)
 pcr.fit <- train(x_training, y_training,
                  method = "pcr",
                  tuneGrid = data.frame(ncomp = 1:18),
@@ -271,7 +297,7 @@ ggplot(pcr.fit, highlight = TRUE) + theme_bw()
 
 ```{r}
 #lasso
-set.seed(2)
+set.seed(1234)
 lasso.fit <- train(x_training, y_training,
                    method = "glmnet",
                    tuneGrid = expand.grid(alpha = 1,
@@ -296,7 +322,7 @@ mean((y_testing - lasso.pred)^2)
 
 ```{r}
 #PLS
-set.seed(2)
+set.seed(1234)
 pls.fit <- train(x_training, y_training,
                  method = "pls",
                  tuneGrid = data.frame(ncomp = 1:18),
@@ -329,7 +355,7 @@ mean((y_testing - enet.pred)^2)
 #polynomial regression
 
 #GAM
-set.seed(2)
+set.seed(1234)
 gam.fit = train(x_training, y_training,
                  method = "gam",
                  tuneGrid = data.frame(method = "GCV.Cp", select = c(TRUE,FALSE)),
@@ -351,7 +377,7 @@ gam.fit$finalModel
 mars_grid <- expand.grid(degree = 1:4,
 nprune = 1:20)
 
-set.seed(2)
+set.seed(1234)
 mars.fit <- train(x_training, y_training,
                   method = "earth",
                   tuneGrid = mars_grid,

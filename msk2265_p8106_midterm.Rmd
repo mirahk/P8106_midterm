@@ -2,7 +2,7 @@
 title: "p8106 midterm"
 author: "Mirah"
 date: "`r Sys.Date()`"
-output: github_document
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -16,6 +16,7 @@ library(earth)
 library(tidyverse)
 library(ggplot2)
 library(corrplot)
+library(table1)
 
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
@@ -31,15 +32,73 @@ load("Data/recovery.RData")
 
 dat = dat %>% drop_na() %>% janitor::clean_names() %>% select(-id)
 
+#no missing values
 ```
 
 ##Exploratory Analysis
+
+Splitting up the data into a matrix of predictors and a vector of responses.
 ```{r}
 #matrix of predictors, no recovery time
 x_ea = model.matrix(recovery_time ~., dat)[, -1]
 #vector of responses
 y_ea = dat$recovery_time
 
+data_ea = dat %>% 
+  mutate(
+    gender = case_match(
+      gender, 
+      1 ~ "Male", 
+      0 ~ "Female"
+    ), 
+    race = case_match(
+      race, 
+      "1" ~ "White, non-Hispanic", 
+      "2" ~ "Asian", 
+      "3" ~ "Black, non-Hispanic", 
+      "4" ~ "Hispanic"
+    ), 
+    smoking = case_match(
+      smoking, 
+      "0" ~ "No history", 
+      "1" ~ "Formerly smoked", 
+      "2" ~ "Currently smokes"
+    ), 
+    hypertension = case_match(
+      hypertension, 
+      1 ~ "Hypertension", 
+      0 ~ "No hypertension"
+    ), 
+    diabetes = case_match(
+      diabetes, 
+      1 ~ "Diabetes", 
+      0 ~ "No diabetes"
+    ), 
+    vaccine = case_match(
+      vaccine, 
+      1 ~ "Vaccinated", 
+      0 ~ "Not vaccinated"
+    ), 
+    severity = case_match(
+      severity, 
+      1 ~ "Severe infection", 
+      0 ~ "Not severe infection"
+    )
+  )
+
+```
+
+Creating a summary statistic table:
+```{r}
+skimr::skim(data_ea) %>%  dplyr::mutate(across(where(is.numeric), ~round(., 2))) %>%  select(skim_variable, numeric.hist, n_missing, numeric.mean, numeric.sd, numeric.p0, numeric.p50, numeric.p100) %>% knitr::kable()
+
+exploratory_table = table1(~ gender + age + race + height + weight + bmi + sbp + ldl + smoking + hypertension + diabetes + severity + recovery_time |study, data=data_ea)
+
+exploratory_table
+```
+
+Scatterplots of numeric variables and recovery_time:
+```{r}
 theme1 <- trellis.par.get()
 theme1$plot.symbol$col <- rgb(.2, .4, .2, .5)
 theme1$plot.symbol$pch <- 16
@@ -49,16 +108,61 @@ theme1$strip.background$col <- rgb(.0, .2, .6, .2)
 trellis.par.set(theme1)
 
 featurePlot(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)], y_ea, plot="scatter", labels = c("", "Y"),type = c("p", "smooth"), layout = c(3,2))
+```
 
+
+```{r}
 correlation = corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)],y_ea))
 #correlation values and scatter plots show no linear correlations with the nummeric variables
 
 #checking to see if predictors correlate
 corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)]), type = "full", diag= FALSE)
 
-#maybe add non parametric correlation test
 
-#check for normal distributions of numeric variables to see if transformationa are necessary
+```
+
+Based on a discussion with the team, we decided to remove outliers and then proceed with further exploratory analysis and model training.
+
+```{r}
+
+#box plots to show outliers
+ggplot(data = dat, mapping = aes(y=recovery_time)) + geom_boxplot()
+
+ggplot(data = dat, mapping = aes( x = study, y = recovery_time)) + geom_boxplot()
+
+
+#histogram
+hist1 = dat %>% 
+  ggplot(aes(x = recovery_time)) + 
+  geom_histogram(bins = 150)+
+  labs(title = " Distribution of recovery time (days)")
+
+#skewed 
+
+#Removing outliers
+
+outlier_coef = 2
+
+outlier_upper = mean(dat$recovery_time) +outlier_coef* sd(dat$recovery_time)
+
+outlier_lower = mean(dat$recovery_time) -outlier_coef* sd(dat$recovery_time)
+
+dat_2 = dat %>% 
+  filter(outlier_lower < recovery_time & recovery_time < outlier_upper)
+
+#new histogram
+
+hist2 = dat_2 %>% 
+  ggplot(aes(x = recovery_time)) + 
+  geom_histogram(bins = 150)+
+  labs(title = " Distribution of recovery time (days)")
+
+
+#looks way more normal
+
+#to compare side by side
+gridExtra::grid.arrange(hist1, hist2, nrow=1)
+
 ```
 
 ##Model training
@@ -68,9 +172,10 @@ corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)]), type = "full", diag= FALSE
 set.seed(2)
 
 #data partition
-data_split = initial_split(data = dat, prop = .8)
+data_split = initial_split(data = dat_2, prop = .8)
+
 training_data = training(data_split)
-test_data = testing(data_split)
+test_data = testing(data_split) %>% as.vector()
 ```
 
 
@@ -111,15 +216,17 @@ ggplot(fit.knn)
 
 ```{r}
 #linear model
-fit.lm = train(x_training, y_training,
-               data = training_data,
-               trControl = control)
+#set.seed(2)
+
+#fit.lm = train(x_training, y_training,
+              # data = training_data,
+               #trControl = control)
 ```
 
 How do you choose a lambda
 ```{r}
 #ridge regression
-
+set.seed(2)
 ridge.fit <- train(x_training,y_training,
                    data = training_data,
                    trControl = control,
@@ -138,7 +245,7 @@ coef(ridge.fit$finalModel, s = ridge.fit$bestTune$lambda)
 ridge.pred = predict(ridge.fit, newdata = model.matrix(recovery_time ~ .,test_data)[,-1])
 
 # test error
-mean((ridge.pred - test_data[, "recovery_time"])^2)
+mean((ridge.pred - test_data$recovery_time)^2)
 ```
 
 Dimension reduction
@@ -156,6 +263,31 @@ predy2.pcr2 <- predict(pcr.fit, newdata = x_testing)
 mean((y_testing - predy2.pcr2)^2)
 
 ggplot(pcr.fit, highlight = TRUE) + theme_bw()
+```
+
+
+```{r}
+#lasso
+set.seed(2)
+lasso.fit <- train(x_training, y_training,
+                   method = "glmnet",
+                   tuneGrid = expand.grid(alpha = 1,
+                                          lambda = exp(seq(-2, -6, length=200))),
+                   trControl = control)
+
+plot(lasso.fit, xTrans = log)
+
+lasso.fit$bestTune
+
+# coefficients
+
+coef(lasso.fit$finalModel, lasso.fit$bestTune$lambda)
+
+#test error
+
+lasso.pred <- predict(lasso.fit, newdata = x_testing)
+
+mean((y_testing - lasso.pred)^2)
 ```
 
 
@@ -183,6 +315,10 @@ enet.fit = train(x_training, y_training,
                  tuneGrid = expand.grid(alpha = seq(0, 1,length = 21),
                                         lambda = exp(seq(6, 0, length = 100))),
                  trControl = control)
+
+enet.pred <- predict(enet.fit, newdata = x_testing)
+
+mean((y_testing - enet.pred)^2)
 ```
 
 
@@ -190,13 +326,17 @@ enet.fit = train(x_training, y_training,
 #polynomial regression
 
 #GAM
-
+set.seed(2)
 gam.fit = train(x_training, y_training,
                  method = "gam",
                  tuneGrid = data.frame(method = "GCV.Cp", select = c(TRUE,FALSE)),
                 trControl = control)
 
 gam.fit$bestTune
+
+gam.pred <- predict(gam.fit, newdata = x_testing)
+
+mean((y_testing - gam.pred)^2)
 ```
 
 ```{r}
@@ -205,8 +345,8 @@ gam.fit$finalModel
 
 ```{r}
 #MARS
-mars_grid <- expand.grid(degree = 1:3,
-nprune = 2:15)
+mars_grid <- expand.grid(degree = 1:4,
+nprune = 1:20)
 
 set.seed(2)
 mars.fit <- train(x_training, y_training,
@@ -216,7 +356,9 @@ mars.fit <- train(x_training, y_training,
 
 ggplot(mars.fit)
 
+mars.pred <- predict(mars.fit, newdata = x_testing)
 
+mean((y_testing - mars.pred)^2)
 ```
 
 ```{r}
@@ -225,16 +367,19 @@ mars.fit$bestTune
 
 ```{r}
 coef(mars.fit$finalModel)
+plot(gam.fit$finalModel)
 ```
 
 
 ```{r}
 #which is better
-rs = resamples(list(knn = fit.knn,lm = fit.lm, elastic_net = enet.fit, mars = mars.fit, gam = gam.fit,pcr=pcr.fit, pls=pls.fit))
+rs = resamples(list(knn = fit.knn, elastic_net = enet.fit, mars = mars.fit, gam = gam.fit,pcr=pcr.fit, pls=pls.fit))
 
 summary(rs, metric = "RMSE")
 
 bwplot(rs, metric = "RMSE")
+
+
 ```
 
 

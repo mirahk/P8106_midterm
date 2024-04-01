@@ -110,6 +110,7 @@ trellis.par.set(theme1)
 featurePlot(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)], y_ea, plot="scatter", labels = c("", "Y"),type = c("p", "smooth"), layout = c(3,2))
 ```
 
+Scatter plots don't show much of a trend. Bmi looks slightly parabolic. The rest are slightly linear.
 
 ```{r}
 correlation = corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)],y_ea))
@@ -120,6 +121,8 @@ corrplot(cor(x_ea[, -c(2,3,4,5,6,7,11,12,15,16,17)]), type = "full", diag= FALSE
 
 
 ```
+
+Correlation plot supports that there is little relationship between predictors and the outcome. 
 
 Based on a discussion with the team, we decided to remove outliers and then proceed with further exploratory analysis and model training.
 
@@ -162,7 +165,7 @@ hist2 = dat_2 %>%
 #to compare side by side
 gridExtra::grid.arrange(hist1, hist2, nrow=1)
 ```
-
+Histograms and box plots above show outliers. Histograms above show how the skew was reduced when outliers were removed.
 
 ```{r}
 #exploratory plots now that outliers are gone:
@@ -237,6 +240,12 @@ fit.knn = train(x_training, y_training,
 
 ggplot(fit.knn)
 
+knn.pred = predict(fit.knn, newdata = model.matrix(recovery_time ~ .,test_data)[,-1])
+
+knn.te = mean((knn.pred - test_data$recovery_time)^2)
+
+summary(fit.knn$finalModel)
+
 #k=14
 ```
 
@@ -250,9 +259,14 @@ lm.fit = train(x_training, y_training,
 
 lm.fit$bestTune
 summary(lm.fit)
+
+lm.pred = predict(lm.fit, newdata = model.matrix(recovery_time ~ .,test_data)[,-1])
+
+lm.te = mean((lm.pred - test_data$recovery_time)^2)
+
+summary(lm.fit$finalModel)
 ```
 
-How do you choose a lambda
 ```{r}
 #ridge regression
 set.seed(1234)
@@ -274,7 +288,7 @@ coef(ridge.fit$finalModel, s = ridge.fit$bestTune$lambda)
 ridge.pred = predict(ridge.fit, newdata = model.matrix(recovery_time ~ .,test_data)[,-1])
 
 # test error
-mean((ridge.pred - test_data$recovery_time)^2)
+ridge.te = mean((ridge.pred - test_data$recovery_time)^2)
 ```
 
 Dimension reduction
@@ -289,9 +303,11 @@ pcr.fit <- train(x_training, y_training,
 
 predy2.pcr2 <- predict(pcr.fit, newdata = x_testing)
 
-mean((y_testing - predy2.pcr2)^2)
+pcr.te = mean((y_testing - predy2.pcr2)^2)
 
 ggplot(pcr.fit, highlight = TRUE) + theme_bw()
+
+summary(pcr.fit$finalModel)
 ```
 
 
@@ -316,7 +332,9 @@ coef(lasso.fit$finalModel, lasso.fit$bestTune$lambda)
 
 lasso.pred <- predict(lasso.fit, newdata = x_testing)
 
-mean((y_testing - lasso.pred)^2)
+lasso.te = mean((y_testing - lasso.pred)^2)
+
+summary(lasso.fit$finalModel)
 ```
 
 
@@ -331,9 +349,11 @@ pls.fit <- train(x_training, y_training,
 
 predy2.pls2 <- predict(pls.fit, newdata = x_testing)
 
-mean((y_testing - predy2.pls2)^2)
+pls.te = mean((y_testing - predy2.pls2)^2)
 
 ggplot(pls.fit, highlight = TRUE)
+
+summary(pls.fit$finalModel)
 ```
 
 
@@ -347,12 +367,13 @@ enet.fit = train(x_training, y_training,
 
 enet.pred <- predict(enet.fit, newdata = x_testing)
 
-mean((y_testing - enet.pred)^2)
+enet.te = mean((y_testing - enet.pred)^2)
+
+summary(enet.fit$finalModel)
 ```
 
 
 ```{r}
-#polynomial regression
 
 #GAM
 set.seed(1234)
@@ -365,11 +386,13 @@ gam.fit$bestTune
 
 gam.pred <- predict(gam.fit, newdata = x_testing)
 
-mean((y_testing - gam.pred)^2)
+gam.te = mean((y_testing - gam.pred)^2)
 ```
 
 ```{r}
 gam.fit$finalModel
+
+summary(gam.fit$finalModel)
 ```
 
 ```{r}
@@ -387,7 +410,7 @@ ggplot(mars.fit)
 
 mars.pred <- predict(mars.fit, newdata = x_testing)
 
-mean((y_testing - mars.pred)^2)
+mars.te = mean((y_testing - mars.pred)^2)
 ```
 
 ```{r}
@@ -396,19 +419,77 @@ mars.fit$bestTune
 
 ```{r}
 coef(mars.fit$finalModel)
+
+summary(mars.fit$finalModel)
+
+```
+
+
+```{r}
 plot(gam.fit$finalModel)
 ```
 
 
 ```{r}
 #which is better
-rs = resamples(list(knn = fit.knn, lm = lm.fit, elastic_net = enet.fit, mars = mars.fit, gam = gam.fit,pcr=pcr.fit, pls=pls.fit))
+rs = resamples(list(knn = fit.knn, lm = lm.fit, elastic_net = enet.fit, mars = mars.fit, gam = gam.fit,pcr=pcr.fit, pls=pls.fit, ridge = ridge.fit, lasso = lasso.fit))
 
-summary(rs, metric = "RMSE")
+rmsesum = summary(rs, metric = "RMSE")
 
 bwplot(rs, metric = "RMSE")
 
 
+```
+
+```{r}
+#model tables
+model = c("linear", "Knn", "Ridge", "PCR", "PLS", "Lasso", "Elastic Net", "GAM", "MARS")
+
+test_error = c(lm.te, knn.te, ridge.te, pcr.te, pls.te, lasso.te, enet.te, gam.te, mars.te)
+
+mean_RMSE = c(mean(rmsesum$values$`lm~RMSE`),
+              mean(rmsesum$values$`knn~RMSE`),
+              mean(rmsesum$values$`ridge~RMSE`),
+              mean(rmsesum$values$`pcr~RMSE`),
+              mean(rmsesum$values$`pls~RMSE`),
+              mean(rmsesum$values$`lasso~RMSE`),
+              mean(rmsesum$values$`elastic_net~RMSE`),
+              mean(rmsesum$values$`gam~RMSE`),
+              mean(rmsesum$values$`mars~RMSE`))
+
+mean_MAE = c(mean(rmsesum$values$`lm~MAE`),
+              mean(rmsesum$values$`knn~MAE`),
+              mean(rmsesum$values$`ridge~MAE`),
+              mean(rmsesum$values$`pcr~MAE`),
+              mean(rmsesum$values$`pls~MAE`),
+              mean(rmsesum$values$`lasso~MAE`),
+              mean(rmsesum$values$`elastic_net~MAE`),
+              mean(rmsesum$values$`gam~MAE`),
+              mean(rmsesum$values$`mars~MAE`))
+
+mean_rsqrd = c(mean(rmsesum$values$`lm~Rsquared`),
+              mean(rmsesum$values$`knn~Rsquared`),
+              mean(rmsesum$values$`ridge~Rsquared`),
+              mean(rmsesum$values$`pcr~Rsquared`),
+              mean(rmsesum$values$`pls~Rsquared`),
+              mean(rmsesum$values$`lasso~Rsquared`),
+              mean(rmsesum$values$`elastic_net~Rsquared`),
+              mean(rmsesum$values$`gam~Rsquared`),
+              mean(rmsesum$values$`mars~Rsquared`))
+
+
+model_result = data.frame(
+  Model = model,
+  test_error = test_error,
+  mean_RMSE = mean_RMSE,
+  mean_MAE = mean_MAE,
+  mean_rsqrd = mean_rsqrd
+) %>%  mutate(test_error = round(test_error,2),
+              mean_RMSE = round(mean_RMSE, 2),
+              mean_MAE = round(mean_MAE, 2),
+              mean_rsqrd = round(mean_rsqrd, 4))
+
+model_result
 ```
 
 
